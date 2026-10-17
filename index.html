@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="背诵助手" />
 <meta name="theme-color" content="#4f46e5" />
 <title>背诵打卡助手</title>
+<!-- 引入 SheetJS 用于解析 Excel -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --primary:#4f46e5;
@@ -45,23 +46,16 @@
     overscroll-behavior-y:contain;
   }
 
-  /* ===== 顶部（含安全区） ===== */
+  /* ===== 顶部 ===== */
   .app-header{
     position:relative;overflow:hidden;
-    background:var(--primary-gradient);
-    color:#fff;
+    background:var(--primary-gradient);color:#fff;
     padding:22px 20px 30px;
     padding-top:calc(22px + env(safe-area-inset-top));
-    padding-left:calc(20px + env(safe-area-inset-left));
-    padding-right:calc(20px + env(safe-area-inset-right));
   }
   .app-header::before{
     content:"";position:absolute;top:-70px;right:-40px;
     width:220px;height:220px;background:rgba(255,255,255,.10);border-radius:50%;
-  }
-  .app-header::after{
-    content:"";position:absolute;bottom:-90px;left:-30px;
-    width:180px;height:180px;background:rgba(255,255,255,.07);border-radius:50%;
   }
   .header-inner{
     position:relative;z-index:1;max-width:900px;margin:0 auto;
@@ -71,24 +65,44 @@
     width:48px;height:48px;flex-shrink:0;border-radius:15px;
     background:rgba(255,255,255,.22);backdrop-filter:blur(6px);
     display:grid;place-items:center;font-size:26px;
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.35);
   }
   .header-text{flex:1;min-width:0}
   .header-text h1{margin:0;font-size:19px;font-weight:700;letter-spacing:.4px}
-  .header-text p{margin:3px 0 0;font-size:12.5px;opacity:.82;letter-spacing:.3px}
+  .header-text p{margin:3px 0 0;font-size:12.5px;opacity:.82}
   .header-actions{display:flex;gap:8px;flex-shrink:0}
   .header-btn{
-    width:42px;height:42px;border:0;border-radius:13px;
-    background:rgba(255,255,255,.18);color:#fff;font-size:19px;
-    cursor:pointer;display:grid;place-items:center;
-    transition:background .18s ease;
+    height:42px;border:0;border-radius:13px;
+    background:rgba(255,255,255,.18);color:#fff;font-size:14px;font-weight:600;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;
+    padding:0 12px;transition:background .18s ease;
   }
   .header-btn:hover{background:rgba(255,255,255,.3)}
-  .header-btn:active{transform:scale(.95)}
+
+  /* ===== 班级切换栏 ===== */
+  .class-bar{
+    background:#fff;padding:10px 14px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:25;
+    box-shadow:0 2px 8px rgba(15,23,42,.03);
+  }
+  .class-bar-inner{
+    max-width:900px;margin:0 auto;display:flex;align-items:center;gap:10px;
+  }
+  .class-select{
+    flex:1;padding:8px 12px;border-radius:10px;border:1.5px solid var(--primary-2);
+    font-size:15px;font-weight:600;color:var(--primary);background:#f5f3ff;
+    outline:none;appearance:none;-webkit-appearance:none;
+    background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;padding-right:36px;
+  }
+  .btn-manage{
+    padding:8px 14px;border-radius:10px;border:1.5px solid var(--line);
+    background:#fff;color:var(--ink-2);font-size:14px;font-weight:500;
+    cursor:pointer;white-space:nowrap;
+  }
 
   /* ===== 标签栏 ===== */
   .tabs{
-    position:sticky;top:0;z-index:20;padding:10px 12px;
+    position:sticky;top:53px;z-index:20;padding:10px 12px;
     background:rgba(255,255,255,.86);
     backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-bottom:1px solid rgba(226,232,240,.8);
@@ -99,16 +113,13 @@
     font-family:inherit;font-size:14.5px;font-weight:500;color:var(--muted);
     cursor:pointer;transition:all .22s ease;
   }
-  .tab-btn:hover{background:#eef2f7;color:var(--ink-2)}
   .tab-btn.active{
     background:var(--primary-gradient);color:#fff;font-weight:600;
     box-shadow:0 6px 16px -6px rgba(79,70,229,.65);
   }
 
   /* ===== 布局 ===== */
-  main{max-width:900px;margin:0 auto;padding:16px 14px 90px;
-    padding-left:calc(14px + env(safe-area-inset-left));
-    padding-right:calc(14px + env(safe-area-inset-right));}
+  main{max-width:900px;margin:0 auto;padding:16px 14px 90px}
   .view{animation:fadeUp .28s ease}
   @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
@@ -126,23 +137,19 @@
     background:var(--primary-gradient);flex-shrink:0;
   }
   .hint{color:var(--muted);font-size:13px;margin:0 0 10px;line-height:1.6}
-  .hint code{background:#eef2ff;color:#4338ca;padding:1px 6px;border-radius:5px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace}
   .empty{color:var(--muted-2);font-size:14px;text-align:center;padding:30px 0;margin:0}
 
-  /* ===== 表单（16px 防 iOS 缩放） ===== */
+  /* ===== 表单 ===== */
   input,textarea,select{
     width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:11px;
     font-size:16px;font-family:inherit;background:#f8fafc;color:var(--ink);transition:all .2s ease;
   }
-  @media (hover:hover) and (pointer:fine){
-    input,textarea,select{font-size:15px}
-  }
-  input::placeholder,textarea::placeholder{color:var(--muted-2)}
+  @media (hover:hover) and (pointer:fine){ input,textarea,select{font-size:15px} }
   input:focus,textarea:focus,select:focus{
     outline:none;border-color:var(--primary-2);background:#fff;
     box-shadow:0 0 0 4px rgba(99,102,241,.12);
   }
-  textarea{resize:vertical;min-height:92px;line-height:1.6}
+  textarea{resize:vertical;min-height:80px;line-height:1.6}
   .row{display:flex;gap:9px;flex-wrap:wrap}
   .row>*{flex:1;min-width:130px}
 
@@ -154,41 +161,40 @@
     transition:all .2s ease;box-shadow:0 6px 16px -6px rgba(79,70,229,.7);
     min-height:44px;
   }
-  .btn:hover{transform:translateY(-1px);box-shadow:0 10px 22px -8px rgba(79,70,229,.8)}
-  .btn:active{transform:translateY(0);box-shadow:0 4px 10px -4px rgba(79,70,229,.6)}
-  .btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+  .btn:active{transform:scale(.98)}
   .btn-ghost{background:#eef2ff;color:var(--primary);box-shadow:none}
-  .btn-ghost:hover{background:#e0e7ff;box-shadow:none;transform:none}
   .btn-sm{padding:8px 14px;font-size:13.5px;border-radius:9px;min-height:38px}
+  .file-label{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:11px 18px;border-radius:11px;background:#eef2ff;color:var(--primary);
+    font-size:15px;font-weight:600;cursor:pointer;min-height:44px;flex:1;
+  }
 
-  /* ===== 学生列表 ===== */
+  /* ===== 学生与作业列表 ===== */
   .stu-item{display:flex;align-items:center;gap:12px;padding:9px 8px;border-radius:13px;transition:background .16s}
   .stu-item:hover{background:#f8fafc}
   .avatar{
     width:40px;height:40px;flex-shrink:0;border-radius:13px;
     background:linear-gradient(135deg,#e0e7ff 0%,#c7d2fe 100%);
-    color:#4338ca;display:grid;place-items:center;font-weight:700;font-size:16px;letter-spacing:.5px;
+    color:#4338ca;display:grid;place-items:center;font-weight:700;font-size:16px;
   }
   .stu-info{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
-  .stu-name{font-size:15.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .stu-no{font-size:12px;color:var(--muted-2);font-weight:400}
+  .stu-name{font-size:15.5px;font-weight:600;color:var(--ink)}
+  .stu-no{font-size:12px;color:var(--muted-2)}
   .icon-btn{
     width:38px;height:38px;flex-shrink:0;border:0;border-radius:10px;background:transparent;
     color:var(--muted-2);display:grid;place-items:center;cursor:pointer;transition:all .18s ease;
   }
   .icon-btn:hover{background:#fee2e2;color:#ef4444}
-  .icon-btn svg{display:block}
 
-  /* ===== 作业列表 ===== */
   .as-item{display:flex;align-items:center;gap:13px;padding:11px 8px;border-radius:14px;transition:background .16s}
   .as-item:hover{background:#f8fafc}
   .as-badge{
     width:50px;height:54px;flex-shrink:0;border-radius:13px;
     background:linear-gradient(160deg,#eef2ff 0%,#e0e7ff 100%);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    line-height:1;border:1px solid #e0e7ff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid #e0e7ff;
   }
-  .as-day{font-size:19px;font-weight:800;color:#4338ca;letter-spacing:-.5px}
+  .as-day{font-size:19px;font-weight:800;color:#4338ca;line-height:1}
   .as-mon{font-size:10.5px;color:#6366f1;font-weight:600;margin-top:2px}
   .as-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .as-title{font-size:15px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -200,148 +206,80 @@
 
   /* ===== 打卡页 ===== */
   .check-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-  .check-back{
-    width:42px;height:42px;flex-shrink:0;border:0;border-radius:12px;
-    background:#eef2ff;color:var(--primary);display:grid;place-items:center;
-    cursor:pointer;font-size:18px;font-weight:600;transition:all .18s ease;
-  }
-  .check-back:hover{background:#e0e7ff;transform:translateX(-2px)}
-  .check-title-wrap{flex:1;min-width:0}
-  .check-title{font-size:16.5px;font-weight:700;color:var(--ink);line-height:1.35}
-  .check-meta{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .check-back{width:42px;height:42px;flex-shrink:0;border:0;border-radius:12px;background:#eef2ff;color:var(--primary);display:grid;place-items:center;cursor:pointer;font-size:18px;}
   .progress-wrap{margin:4px 0 14px}
   .progress-bar{height:10px;background:#eef2f7;border-radius:6px;overflow:hidden}
-  .progress-bar>div{height:100%;width:0;background:var(--ok-gradient);border-radius:6px;transition:width .35s cubic-bezier(.4,0,.2,1)}
+  .progress-bar>div{height:100%;width:0;background:var(--ok-gradient);border-radius:6px;transition:width .35s}
   .progress-text{font-size:12.5px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:4px 12px}
   .progress-text b{color:var(--ink-2);font-weight:600}
 
-  .check-row{display:flex;align-items:center;gap:11px;padding:8px;border-radius:13px;transition:background .16s}
-  .check-row:hover{background:#f8fafc}
+  .check-row{display:flex;align-items:center;gap:11px;padding:8px;border-radius:13px;}
   .check-info{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
-  .check-name{font-size:15.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .check-no{font-size:12px;color:var(--muted-2)}
+  .check-name{font-size:15.5px;font-weight:600;color:var(--ink)}
   .check-actions{display:flex;gap:7px;flex-shrink:0}
   .check-btn{
     padding:9px 16px;border:1.5px solid var(--line);border-radius:10px;background:#fff;
-    font-size:14px;font-weight:500;font-family:inherit;color:var(--muted);
-    cursor:pointer;transition:all .18s ease;white-space:nowrap;min-height:40px;
+    font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;min-height:40px;
   }
-  .check-btn:hover{border-color:#cbd5e1;background:#f8fafc;color:var(--ink-2)}
-  .check-btn.done.active{
-    background:var(--ok-gradient);border-color:transparent;color:#fff;font-weight:600;
-    box-shadow:0 6px 14px -6px rgba(16,185,129,.8);
-  }
-  .check-btn.miss.active{
-    background:var(--no-gradient);border-color:transparent;color:#fff;font-weight:600;
-    box-shadow:0 6px 14px -6px rgba(239,68,68,.8);
-  }
+  .check-btn.done.active{background:var(--ok-gradient);border-color:transparent;color:#fff;font-weight:600;}
+  .check-btn.miss.active{background:var(--no-gradient);border-color:transparent;color:#fff;font-weight:600;}
 
   /* ===== 总览 ===== */
   .range-bar{display:flex;gap:7px}
   .range-btn{
     flex:1;padding:9px 0;border:1.5px solid var(--line);border-radius:10px;background:#fff;
-    font-size:14px;font-weight:500;font-family:inherit;color:var(--muted);cursor:pointer;transition:all .2s ease;
-    min-height:40px;
+    font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;min-height:40px;
   }
-  .range-btn:hover{border-color:#cbd5e1;color:var(--ink-2)}
-  .range-btn.active{
-    background:var(--primary-gradient);border-color:transparent;color:#fff;font-weight:600;
-    box-shadow:0 6px 14px -6px rgba(79,70,229,.8);
-  }
+  .range-btn.active{background:var(--primary-gradient);border-color:transparent;color:#fff;font-weight:600;}
   .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-  .stat{
-    background:#f8fafc;border:1px solid var(--line-soft);border-radius:14px;
-    padding:15px 6px;text-align:center;transition:all .2s ease;
-  }
-  .stat:hover{transform:translateY(-2px);box-shadow:0 10px 22px -16px rgba(15,23,42,.4)}
-  .stat-num{font-size:23px;font-weight:800;line-height:1.15;letter-spacing:-.5px}
-  .stat-label{font-size:12px;color:var(--muted);margin-top:3px;font-weight:500}
+  .stat{background:#f8fafc;border:1px solid var(--line-soft);border-radius:14px;padding:15px 6px;text-align:center;}
+  .stat-num{font-size:23px;font-weight:800;line-height:1.15;color:var(--ink);}
+  .stat-label{font-size:12px;color:var(--muted);margin-top:3px;}
 
-  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+  .table-wrap{overflow-x:auto;margin:0 -4px;padding:0 4px}
   table{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}
-  th{
-    padding:10px 10px;text-align:left;font-size:12.5px;font-weight:600;
-    color:var(--muted);background:#f8fafc;white-space:nowrap;
-  }
-  th:first-child{border-radius:10px 0 0 10px}
-  th:last-child{border-radius:0 10px 10px 0}
+  th{padding:10px;text-align:left;font-size:12.5px;font-weight:600;color:var(--muted);background:#f8fafc;white-space:nowrap;}
   td{padding:11px 10px;border-bottom:1px solid #f1f5f9;white-space:nowrap;color:var(--ink-2)}
-  tbody tr:last-child td{border-bottom:0}
-  tbody tr:hover td{background:#f8fafc}
   .c-ok{color:var(--ok);font-weight:700}
   .c-no{color:var(--no);font-weight:700}
   .c-muted{color:var(--muted-2)}
   .mini-bar{display:inline-block;width:54px;height:6px;background:#eef2f7;border-radius:3px;overflow:hidden;vertical-align:middle;margin-right:7px}
   .mini-bar>span{display:block;height:100%;background:var(--primary-gradient);border-radius:3px;transition:width .3s}
 
-  /* ===== Toast（避开底部手势条） ===== */
+  /* ===== Toast ===== */
   #toast{
-    position:fixed;left:50%;
-    bottom:calc(34px + env(safe-area-inset-bottom));
-    transform:translate(-50%,20px);
+    position:fixed;left:50%;bottom:calc(34px + env(safe-area-inset-bottom));transform:translate(-50%,20px);
     background:#0f172a;color:#fff;padding:12px 22px;border-radius:13px;font-size:14px;font-weight:500;
-    opacity:0;transition:all .3s cubic-bezier(.4,0,.2,1);pointer-events:none;z-index:300;
-    box-shadow:0 14px 34px -10px rgba(15,23,42,.6);
-    max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    opacity:0;transition:all .3s;pointer-events:none;z-index:300;white-space:nowrap;
   }
   #toast.show{opacity:1;transform:translate(-50%,0)}
 
-  /* ===== 备份模态框 ===== */
+  /* ===== 模态框 ===== */
   .modal-mask{
-    position:fixed;inset:0;z-index:250;
-    background:rgba(15,23,42,.45);
-    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
-    display:flex;align-items:center;justify-content:center;
-    padding:20px;
-    animation:fadeIn .2s ease;
+    position:fixed;inset:0;z-index:250;background:rgba(15,23,42,.45);
+    backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px;
   }
-  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   .modal-mask[hidden]{display:none}
   .modal{
-    background:#fff;border-radius:18px;padding:20px;
-    width:100%;max-width:380px;
-    box-shadow:0 20px 50px -20px rgba(15,23,42,.6);
-    animation:pop .22s cubic-bezier(.4,0,.2,1);
+    background:#fff;border-radius:18px;padding:20px;width:100%;max-width:380px;
+    box-shadow:0 20px 50px -20px rgba(15,23,42,.6);max-height:80vh;overflow-y:auto;
   }
-  @keyframes pop{from{opacity:0;transform:scale(.95) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
-  .modal h3{margin:0 0 6px;font-size:17px}
-  .modal .hint{margin-bottom:12px}
-  .backup-stat{
-    background:#f8fafc;border:1px solid var(--line-soft);border-radius:12px;padding:12px 14px;
-    font-size:13px;color:var(--muted);line-height:1.95;margin-bottom:14px;
-  }
-  .backup-stat b{color:var(--ink-2);font-weight:600}
-  .modal-actions{display:flex;flex-direction:column;gap:9px}
-  .modal-actions .btn{width:100%}
-  .file-label{
-    display:inline-flex;align-items:center;justify-content:center;gap:6px;
-    padding:11px 18px;border-radius:11px;background:#eef2ff;color:var(--primary);
-    font-size:15px;font-weight:600;cursor:pointer;transition:background .18s;
-    min-height:44px;
-  }
-  .file-label:hover{background:#e0e7ff}
+  .modal h3{margin:0 0 10px;font-size:17px}
+  .modal-actions{display:flex;flex-direction:column;gap:9px;margin-top:14px}
+  
+  .class-manage-item{display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--line);}
+  .class-manage-item:last-child{border-bottom:0}
 
-  /* ===== 响应式 ===== */
   @media (max-width:520px){
-    .app-header{padding:18px 16px 26px;padding-top:calc(18px + env(safe-area-inset-top))}
-    .logo{width:44px;height:44px;font-size:23px;border-radius:13px}
+    .app-header{padding:18px 16px 26px}
+    .logo{width:44px;height:44px;font-size:23px}
     .header-text h1{font-size:17.5px}
-    .header-text p{font-size:11.5px}
+    .header-actions .header-btn{padding:0 10px;font-size:13px;height:38px}
     main{padding:14px 10px 90px}
-    .card{padding:16px;border-radius:15px}
     .stat-grid{grid-template-columns:repeat(2,1fr)}
-    .tab-btn{font-size:13.5px;padding:9px 4px}
+    .class-select{font-size:14px;padding:7px 10px;padding-right:30px}
     .check-btn{padding:9px 13px;font-size:13.5px}
-    .avatar{width:37px;height:37px;border-radius:12px;font-size:15px}
-    .stu-name,.check-name{font-size:15px}
-    .as-badge{width:46px;height:50px}
-    .as-day{font-size:17.5px}
-    .as-title{font-size:14.5px}
-    .header-btn{width:38px;height:38px;font-size:17px;border-radius:11px}
-  }
-  @media (max-width:360px){
-    .check-actions{gap:5px}
-    .check-btn{padding:8px 10px;font-size:12.5px}
+    .tabs{top:49px}
   }
 </style>
 </head>
@@ -352,13 +290,21 @@
     <div class="logo">📖</div>
     <div class="header-text">
       <h1>背诵打卡助手</h1>
-      <p>数据存在本机 · 请定期备份</p>
+      <p>多班级管理 · 支持Excel导入</p>
     </div>
     <div class="header-actions">
-      <button class="header-btn" id="btnBackup" title="备份与恢复">💾</button>
+      <button class="header-btn" id="btnBackup">💾 备份</button>
     </div>
   </div>
 </header>
+
+<!-- 班级切换栏 -->
+<div class="class-bar">
+  <div class="class-bar-inner">
+    <select id="classSelect" class="class-select"></select>
+    <button class="btn-manage" id="btnManageClasses">⚙️ 管理班级</button>
+  </div>
+</div>
 
 <nav class="tabs">
   <div class="tabs-inner">
@@ -372,15 +318,19 @@
   <!-- 学生名单 -->
   <section id="view-students" class="view">
     <div class="card">
-      <h3>批量导入学生</h3>
-      <p class="hint">每行一个学生，可带学号，如 <code>01 张三</code>。可直接从 Excel 复制一列粘贴。重复的姓名+学号会自动跳过。</p>
-      <textarea id="importText" placeholder="01 张三&#10;02 李四&#10;03 王五"></textarea>
+      <h3>导入学生到当前班级</h3>
+      <p class="hint">支持从 Excel (第一列学号，第二列姓名，或直接一列姓名) 导入，也可手动粘贴。重复姓名+学号自动跳过。</p>
+      <div class="row" style="margin-bottom:12px;">
+        <label class="file-label" for="excelUpload">📁 选择 Excel 文件</label>
+        <input type="file" id="excelUpload" accept=".xlsx, .xls, .csv" hidden />
+      </div>
+      <textarea id="importText" placeholder="或在此手动粘贴：&#10;01 张三&#10;02 李四"></textarea>
       <div class="row" style="margin-top:12px">
-        <button class="btn" id="btnImport">导入名单</button>
+        <button class="btn" id="btnImport">手动导入</button>
       </div>
     </div>
     <div class="card">
-      <h3>班级名单 · 共 <span id="studentCount">0</span> 人</h3>
+      <h3>当前班级名单 · 共 <span id="studentCount">0</span> 人</h3>
       <div id="studentList"></div>
     </div>
   </section>
@@ -394,7 +344,7 @@
         <div class="row" style="margin-top:9px">
           <input id="asDate" type="date" />
         </div>
-        <textarea id="asContent" placeholder="备注 / 要求（选填）" style="min-height:64px;margin-top:9px"></textarea>
+        <textarea id="asContent" placeholder="备注 / 要求（选填）" style="min-height:60px;margin-top:9px"></textarea>
         <button class="btn" id="btnCreate" style="margin-top:12px;width:100%">发布作业</button>
       </div>
       <div class="card">
@@ -418,9 +368,7 @@
         </div>
         <button class="btn btn-ghost btn-sm" id="btnMarkAllDone" style="width:100%">✓ 全部标记为已背</button>
       </div>
-      <div class="card">
-        <div id="ckList"></div>
-      </div>
+      <div class="card"><div id="ckList"></div></div>
     </div>
   </section>
 
@@ -439,35 +387,37 @@
         <button class="btn btn-sm" id="btnCustom" style="flex:0 0 auto">查询</button>
       </div>
     </div>
-    <div class="card">
-      <h3>总体情况</h3>
-      <div class="stat-grid" id="ovStats"></div>
-    </div>
-    <div class="card">
-      <h3>每日背诵情况</h3>
-      <div class="table-wrap"><table id="ovDaily"></table></div>
-    </div>
-    <div class="card">
-      <h3>学生个人统计</h3>
-      <div class="table-wrap"><table id="ovStudents"></table></div>
-    </div>
-    <div class="card">
-      <h3>作业明细</h3>
-      <div class="table-wrap"><table id="ovAssignments"></table></div>
-    </div>
+    <div class="card"><h3>总体情况</h3><div class="stat-grid" id="ovStats"></div></div>
+    <div class="card"><h3>每日背诵情况</h3><div class="table-wrap"><table id="ovDaily"></table></div></div>
+    <div class="card"><h3>学生个人统计</h3><div class="table-wrap"><table id="ovStudents"></table></div></div>
+    <div class="card"><h3>作业明细</h3><div class="table-wrap"><table id="ovAssignments"></table></div></div>
   </section>
 </main>
 
-<!-- 备份/恢复模态框 -->
+<!-- 班级管理模态框 -->
+<div class="modal-mask" id="classModal" hidden>
+  <div class="modal">
+    <h3>⚙️ 管理班级</h3>
+    <div id="classManageList" style="margin-bottom:14px;max-height:200px;overflow-y:auto;"></div>
+    <div class="row" style="margin-bottom:14px">
+      <input type="text" id="newClassName" placeholder="输入新班级名称，如：高一(3)班" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnAddClass">添加班级</button>
+      <button class="btn btn-ghost" id="btnCloseClassModal">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 备份模态框 -->
 <div class="modal-mask" id="backupModal" hidden>
   <div class="modal">
     <h3>💾 数据备份与恢复</h3>
-    <p class="hint">数据保存在本机浏览器。换设备、清理缓存前，请先导出备份文件。</p>
-    <div class="backup-stat" id="backupStat"></div>
+    <div class="backup-stat" id="backupStat" style="background:#f8fafc;border-radius:12px;padding:12px;font-size:13px;color:var(--muted);margin-bottom:14px;"></div>
     <div class="modal-actions">
       <button class="btn" id="btnExport">导出备份文件</button>
       <label class="file-label" for="fileImport">导入备份文件</label>
-      <input type="file" id="fileImport" accept=".json,application/json" hidden />
+      <input type="file" id="fileImport" accept=".json" hidden />
       <button class="btn btn-ghost" id="btnCloseModal">关闭</button>
     </div>
   </div>
@@ -475,56 +425,104 @@
 
 <script>
 /* ==================================================================
-   本地数据层（localStorage 持久化）
+   本地数据层 (多班级支持)
    ================================================================== */
-const STORAGE_KEY = 'recite_app_v1';
+const STORAGE_KEY = 'recite_app_multi_v1'; // 更换了Key，但做了旧版兼容
+const OLD_KEY = 'recite_app_v1';
 const LAST_BACKUP_KEY = 'recite_last_backup';
 
 function emptyDB(){
-  return { students: [], assignments: [], records: [], seq: { student: 0, assignment: 0 } };
+  return { 
+    classes: [{ id: 1, name: '默认班级' }], 
+    currentClassId: 1,
+    students: [], 
+    assignments: [], 
+    records: [], 
+    seq: { class: 1, student: 0, assignment: 0 } 
+  };
 }
+
 function loadDB(){
+  let d = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw){
-      const d = JSON.parse(raw);
-      if (d && typeof d === 'object'){
-        return {
-          students: Array.isArray(d.students) ? d.students : [],
-          assignments: Array.isArray(d.assignments) ? d.assignments : [],
-          records: Array.isArray(d.records) ? d.records : [],
-          seq: d.seq && typeof d.seq === 'object' ? d.seq : { student: 0, assignment: 0 }
-        };
-      }
-    }
-  } catch (e) { console.warn('读取本地数据失败', e); }
-  return emptyDB();
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem(OLD_KEY); // 尝试读取旧版数据
+    if (raw) d = JSON.parse(raw);
+  } catch(e) { console.warn('读取失败', e); }
+  
+  if (!d || typeof d !== 'object') return emptyDB();
+
+  // 如果是旧版数据（没有 classes），进行迁移
+  if (!d.classes) {
+    d = {
+      classes: [{ id: 1, name: '默认班级(迁移)' }],
+      currentClassId: 1,
+      students: d.students || [],
+      assignments: d.assignments || [],
+      records: d.records || [],
+      seq: { class: 1, student: d.seq?.student || 0, assignment: d.seq?.assignment || 0 }
+    };
+    // 给旧数据打上班级标签
+    d.students.forEach(s => s.classId = 1);
+    d.assignments.forEach(a => a.classId = 1);
+  }
+
+  // 补全缺失字段
+  d.classes = Array.isArray(d.classes) && d.classes.length ? d.classes : [{ id: 1, name: '默认班级' }];
+  d.currentClassId = d.classes.some(c => c.id === d.currentClassId) ? d.currentClassId : d.classes[0].id;
+  d.students = Array.isArray(d.students) ? d.students : [];
+  d.assignments = Array.isArray(d.assignments) ? d.assignments : [];
+  d.records = Array.isArray(d.records) ? d.records : [];
+  d.seq = d.seq || { class: 1, student: 0, assignment: 0 };
+  
+  return d;
 }
+
 let DB = loadDB();
 function saveDB(){
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-    return true;
-  } catch (e) {
-    toast('保存失败：存储空间不足或被禁用');
-    return false;
-  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } 
+  catch (e) { toast('保存失败：空间不足'); }
 }
 function nextId(type){
   DB.seq[type] = (DB.seq[type] || 0) + 1;
   return DB.seq[type];
 }
 
+/* 班级操作 */
+function getClasses(){ return DB.classes; }
+function addClass(name){
+  if (!name.trim()) return false;
+  const id = nextId('class');
+  DB.classes.push({ id, name: name.trim() });
+  saveDB();
+  return true;
+}
+function deleteClass(id){
+  if (DB.classes.length <= 1) { toast('至少保留一个班级'); return false; }
+  DB.classes = DB.classes.filter(c => c.id !== id);
+  // 删除该班级下的所有数据
+  const stuIds = DB.students.filter(s => s.classId === id).map(s => s.id);
+  DB.students = DB.students.filter(s => s.classId !== id);
+  DB.assignments = DB.assignments.filter(a => a.classId !== id);
+  DB.records = DB.records.filter(r => !stuIds.includes(r.studentId));
+  
+  if (DB.currentClassId === id) DB.currentClassId = DB.classes[0].id;
+  saveDB();
+  return true;
+}
+
 /* 学生 */
-function getStudents(){ return DB.students.map(s => ({ ...s })); }
+function getStudents(){
+  return DB.students.filter(s => s.classId === DB.currentClassId).map(s => ({ ...s }));
+}
 function addStudents(items){
-  const existing = new Set(DB.students.map(s => s.name + '\u0000' + (s.no || '')));
+  const existing = new Set(DB.students.filter(s => s.classId === DB.currentClassId).map(s => s.name + '\u0000' + (s.no || '')));
   let added = 0;
   items.forEach(it => {
     const key = it.name + '\u0000' + (it.no || '');
     if (existing.has(key)) return;
     existing.add(key);
-    DB.students.push({ id: nextId('student'), no: it.no || '', name: it.name });
+    DB.students.push({ id: nextId('student'), classId: DB.currentClassId, no: it.no || '', name: it.name });
     added++;
   });
   if (added) saveDB();
@@ -538,11 +536,11 @@ function deleteStudent(id){
 
 /* 作业 */
 function getAssignments(){
-  return DB.assignments.map(a => {
+  return DB.assignments.filter(a => a.classId === DB.currentClassId).map(a => {
     const recs = DB.records.filter(r => r.assignmentId === a.id);
     const done = recs.filter(r => r.status === 'done').length;
     const miss = recs.filter(r => r.status === 'miss').length;
-    const total = DB.students.length;
+    const total = DB.students.filter(s => s.classId === DB.currentClassId).length;
     return { ...a, done, miss, total };
   }).sort((a, b) => {
     const d = b.date.localeCompare(a.date);
@@ -550,7 +548,7 @@ function getAssignments(){
   });
 }
 function addAssignment({ title, content, date }){
-  const a = { id: nextId('assignment'), title, content: content || '', date };
+  const a = { id: nextId('assignment'), classId: DB.currentClassId, title, content: content || '', date };
   DB.assignments.push(a);
   saveDB();
   return a;
@@ -563,14 +561,14 @@ function deleteAssignment(id){
 function getAssignmentDetail(id){
   const assignment = DB.assignments.find(a => a.id === id);
   if (!assignment) throw new Error('作业不存在');
-  const students = DB.students.map(s => {
+  const students = DB.students.filter(s => s.classId === DB.currentClassId).map(s => {
     const rec = DB.records.find(r => r.assignmentId === id && r.studentId === s.id);
     return { id: s.id, no: s.no, name: s.name, status: rec ? rec.status : null };
   });
   return { assignment: { ...assignment }, students };
 }
 
-/* 打卡记录 */
+/* 打卡 */
 function setRecord(assignmentId, studentId, status){
   DB.records = DB.records.filter(r => !(r.assignmentId === assignmentId && r.studentId === studentId));
   if (status === 'done' || status === 'miss'){
@@ -585,11 +583,12 @@ function bulkRecord(assignmentId, studentIds, status){
   saveDB();
 }
 
-/* 总览 */
+/* 总览 (只统计当前班级) */
 function getOverview(from, to){
-  const asgs = DB.assignments.filter(a => a.date >= from && a.date <= to);
-  const asgIdSet = new Set(asgs.map(a => a.id));
-  const stuIdSet = new Set(DB.students.map(s => s.id));
+  const classStudents = DB.students.filter(s => s.classId === DB.currentClassId);
+  const classAsgs = DB.assignments.filter(a => a.classId === DB.currentClassId && a.date >= from && a.date <= to);
+  const asgIdSet = new Set(classAsgs.map(a => a.id));
+  const stuIdSet = new Set(classStudents.map(s => s.id));
   const recs = DB.records.filter(r => asgIdSet.has(r.assignmentId) && stuIdSet.has(r.studentId));
 
   const recMap = new Map();
@@ -599,13 +598,14 @@ function getOverview(from, to){
     if (r.status === 'done') m.done++;
     else if (r.status === 'miss') m.miss++;
   });
-  const totalStu = DB.students.length;
-  const assignmentStats = asgs.map(a => {
+  const totalStu = classStudents.length;
+  const assignmentStats = classAsgs.map(a => {
     const m = recMap.get(a.id) || { done: 0, miss: 0 };
     return { ...a, done: m.done, miss: m.miss, total: totalStu, unmarked: Math.max(0, totalStu - m.done - m.miss) };
   });
+
   const dayMap = new Map();
-  asgs.forEach(a => {
+  classAsgs.forEach(a => {
     if (!dayMap.has(a.date)) dayMap.set(a.date, { date: a.date, assignments: 0, done: 0, miss: 0, unmarked: 0 });
     const day = dayMap.get(a.date);
     const m = recMap.get(a.id) || { done: 0, miss: 0 };
@@ -615,220 +615,141 @@ function getOverview(from, to){
     day.unmarked += Math.max(0, totalStu - m.done - m.miss);
   });
   const daily = Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-  const studentStats = DB.students.map(s => {
+  
+  const studentStats = classStudents.map(s => {
     const sr = recs.filter(r => r.studentId === s.id);
     const done = sr.filter(r => r.status === 'done').length;
     const miss = sr.filter(r => r.status === 'miss').length;
-    const total = asgs.length;
+    const total = classAsgs.length;
     return { id: s.id, no: s.no, name: s.name, done, miss, total, unmarked: Math.max(0, total - done - miss) };
   });
   return { assignments: assignmentStats, students: studentStats, daily };
 }
 
 /* ==================================================================
-   工具
+   工具与 UI
    ================================================================== */
-const $  = s => document.querySelector(s);
+const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
-const state = { students: [], assignments: [], current: null, range: 'today' };
+const state = { current: null, range: 'today' };
 
 function pad(n){ return String(n).padStart(2, '0'); }
 function fmtDate(d){ return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function today(){ return fmtDate(new Date()); }
-function weekStart(){
-  const d = new Date();
-  const wd = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - wd);
-  return fmtDate(d);
-}
-function monthStart(){
-  const d = new Date();
-  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-01';
-}
-function esc(s){
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
-    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
-  ));
-}
+function weekStart(){ const d = new Date(); d.setDate(d.getDate() - (d.getDay()+6)%7); return fmtDate(d); }
+function monthStart(){ const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-01'; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function initial(name){ return name ? String(name).trim().charAt(0) : '?'; }
-function dateParts(dateStr){
-  const p = String(dateStr || '').split('-');
-  if (p.length === 3) return { day: p[2], mon: parseInt(p[1], 10) + '月' };
-  return { day: '—', mon: '' };
-}
-function fmtTime(iso){
-  if (!iso) return '从未备份';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '从未备份';
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+function dateParts(str){ const p = String(str||'').split('-'); return p.length===3 ? { day:p[2], mon:parseInt(p[1],10)+'月' } : {day:'—',mon:''}; }
 
 let toastTimer = null;
 function toast(msg){
   let el = $('#toast');
-  if (!el){ el = document.createElement('div'); el.id = 'toast'; document.body.appendChild(el); }
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 1900);
+  if (!el) { el = document.createElement('div'); el.id = 'toast'; document.body.appendChild(el); }
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 1900);
 }
 
 /* ==================================================================
-   持久化存储请求（降低被系统清理风险）
-   ================================================================== */
-async function requestPersistentStorage(){
-  if (!navigator.storage || !navigator.storage.persist) return;
-  try {
-    const already = await navigator.storage.persisted();
-    if (!already){
-      const granted = await navigator.storage.persist();
-      if (!granted) console.info('浏览器未授予持久化存储，请定期备份');
-    }
-  } catch (e) { /* 忽略 */ }
-}
-
-/* ==================================================================
-   PWA manifest 注入（仅在 http(s) 下生效）
-   ================================================================== */
-function injectManifest(){
-  if (!/^https?:$/.test(location.protocol)) return;
-  const iconSvg = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">' +
-    '<rect width="192" height="192" rx="44" fill="#4f46e5"/>' +
-    '<text x="96" y="132" font-size="104" text-anchor="middle" fill="#fff" font-family="sans-serif">📖</text>' +
-    '</svg>'
-  );
-  const manifest = {
-    name: '背诵打卡助手',
-    short_name: '背诵助手',
-    start_url: location.pathname,
-    display: 'standalone',
-    background_color: '#f1f5f9',
-    theme_color: '#4f46e5',
-    icons: [{ src: iconSvg, sizes: '192x192', type: 'image/svg+xml', purpose: 'any' }]
-  };
-  const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-  const link = document.createElement('link');
-  link.rel = 'manifest';
-  link.href = URL.createObjectURL(blob);
-  document.head.appendChild(link);
-
-  const apple = document.createElement('link');
-  apple.rel = 'apple-touch-icon';
-  apple.href = iconSvg;
-  document.head.appendChild(apple);
-}
-
-/* ==================================================================
-   备份 / 恢复
-   ================================================================== */
-function openBackupModal(){
-  const last = localStorage.getItem(LAST_BACKUP_KEY);
-  const stuCount = DB.students.length;
-  const asgCount = DB.assignments.length;
-  const recCount = DB.records.length;
-  $('#backupStat').innerHTML =
-    `学生：<b>${stuCount}</b> 人　作业：<b>${asgCount}</b> 条　打卡记录：<b>${recCount}</b> 条<br>` +
-    `上次备份：<b>${fmtTime(last)}</b>`;
-  $('#backupModal').hidden = false;
-}
-function closeBackupModal(){ $('#backupModal').hidden = true; }
-
-function exportBackup(){
-  const payload = {
-    app: 'recite-helper',
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    data: DB
-  };
-  const json = JSON.stringify(payload, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = '背诵备份_' + today() + '.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-  localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString());
-  toast('备份文件已导出');
-  openBackupModal(); // 刷新显示
-}
-
-function importBackup(file){
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const obj = JSON.parse(reader.result);
-      const data = (obj && obj.data) ? obj.data : obj;
-      if (!data || !Array.isArray(data.students)) throw new Error('文件格式不正确');
-      if (!confirm('导入将覆盖当前所有数据，确定继续？')) return;
-
-      DB = {
-        students: Array.isArray(data.students) ? data.students : [],
-        assignments: Array.isArray(data.assignments) ? data.assignments : [],
-        records: Array.isArray(data.records) ? data.records : [],
-        seq: data.seq || { student: 0, assignment: 0 }
-      };
-      // 修复 seq，避免 ID 冲突
-      DB.students.forEach(s => { DB.seq.student = Math.max(DB.seq.student || 0, s.id || 0); });
-      DB.assignments.forEach(a => { DB.seq.assignment = Math.max(DB.seq.assignment || 0, a.id || 0); });
-      saveDB();
-      toast('导入成功，数据已恢复');
-      loadStudents();
-      loadAssignments();
-      closeBackupModal();
-    } catch (e) {
-      toast('导入失败：' + e.message);
-    }
-  };
-  reader.onerror = () => toast('读取文件失败');
-  reader.readAsText(file);
-}
-
-/* ==================================================================
-   标签页
+   标签与班级切换
    ================================================================== */
 function switchTab(name){
   $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('.view').forEach(v => { v.hidden = (v.id !== 'view-' + name); });
-  if (name === 'students')    loadStudents();
+  if (name === 'students') loadStudents();
   if (name === 'assignments') loadAssignments();
-  if (name === 'overview')    loadOverview();
+  if (name === 'overview') loadOverview();
+}
+
+function renderClassSelect(){
+  const sel = $('#classSelect');
+  sel.innerHTML = DB.classes.map(c => `<option value="${c.id}" ${c.id === DB.currentClassId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
 }
 
 /* ==================================================================
-   学生
+   学生名单
    ================================================================== */
 function parseNames(text){
-  return text
-    .split(/[\n\r,，、;；\t]+/)
-    .map(s => s.trim()).filter(Boolean)
-    .map(s => {
-      const m = s.match(/^(\d{1,3})[\s.、\-_:：]+(.+)$/);
-      if (m) return { no: m[1], name: m[2].trim() };
-      return { no: '', name: s };
-    })
-    .filter(x => x.name);
+  return text.split(/[\n\r,，、;；\t]+/).map(s => s.trim()).filter(Boolean).map(s => {
+    const m = s.match(/^(\d{1,3})[\s.、\-_:：]+(.+)$/);
+    if (m) return { no: m[1], name: m[2].trim() };
+    return { no: '', name: s };
+  }).filter(x => x.name);
 }
+
 function importStudents(){
   const items = parseNames($('#importText').value);
   if (!items.length) return toast('请先输入学生名单');
   const added = addStudents(items);
   $('#importText').value = '';
-  toast(added === 0 ? '这些学生已在名单中' : '已导入 ' + added + ' 名学生');
+  toast(added === 0 ? '学生已存在' : `已导入 ${added} 名学生`);
   loadStudents();
 }
+
+// Excel 解析逻辑
+function handleExcelUpload(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      // 转成二维数组，遇到空单元格保留
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      
+      const items = [];
+      let startRow = 0;
+      
+      // 智能判断是否有表头
+      if (rows.length > 0) {
+        const firstRowStr = rows[0].join('');
+        if (firstRowStr.includes('姓名') || firstRowStr.includes('学号')) {
+          startRow = 1;
+        }
+      }
+
+      for (let i = startRow; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue;
+        
+        let no = '', name = '';
+        if (row.length >= 2) {
+          // 假设第一列是学号，第二列是姓名
+          no = String(row[0]).trim();
+          name = String(row[1]).trim();
+        } else if (row.length === 1) {
+          // 只有一列，可能是 "01 张三" 或直接 "张三"
+          const m = String(row[0]).match(/^(\d{1,3})[\s.、\-_:：]+(.+)$/);
+          if (m) { no = m[1]; name = m[2].trim(); }
+          else { name = String(row[0]).trim(); }
+        }
+        
+        if (name) items.push({ no, name });
+      }
+
+      if (!items.length) return toast('未在Excel中解析到学生数据');
+      
+      const added = addStudents(items);
+      toast(added === 0 ? '学生已存在' : `成功从Excel导入 ${added} 名学生`);
+      loadStudents();
+    } catch (err) {
+      console.error(err);
+      toast('Excel解析失败，请确保格式正确');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function loadStudents(){
-  state.students = getStudents();
-  $('#studentCount').textContent = state.students.length;
+  renderClassSelect();
+  const stus = getStudents();
+  $('#studentCount').textContent = stus.length;
   const box = $('#studentList');
-  if (!state.students.length){
-    box.innerHTML = '<p class="empty">还没有学生，请在上方导入名单。</p>';
+  if (!stus.length){
+    box.innerHTML = '<p class="empty">当前班级还没有学生，请导入名单。</p>';
     return;
   }
-  box.innerHTML = state.students.map(s => `
+  box.innerHTML = stus.map(s => `
     <div class="stu-item" data-id="${s.id}">
       <div class="avatar">${esc(initial(s.name))}</div>
       <div class="stu-info">
@@ -836,25 +757,9 @@ function loadStudents(){
         ${s.no ? `<div class="stu-no">学号 ${esc(s.no)}</div>` : ''}
       </div>
       <button class="icon-btn" data-act="del" title="删除">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-          <path d="M10 11v6M14 11v6"/>
-        </svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
       </button>
     </div>`).join('');
-}
-function onStudentListClick(e){
-  const btn = e.target.closest('button[data-act="del"]');
-  if (!btn) return;
-  const row = btn.closest('.stu-item');
-  const id = Number(row.dataset.id);
-  const name = row.querySelector('.stu-name').textContent;
-  if (!confirm('确定删除「' + name + '」吗？\n该学生的历史记录也会一并删除。')) return;
-  deleteStudent(id);
-  toast('已删除');
-  loadStudents();
 }
 
 /* ==================================================================
@@ -866,26 +771,24 @@ function createAssignment(){
   const content = $('#asContent').value.trim();
   if (!title) return toast('请填写背诵篇目');
   addAssignment({ title, content, date });
-  $('#asTitle').value = '';
-  $('#asContent').value = '';
+  $('#asTitle').value = ''; $('#asContent').value = '';
   toast('作业已发布');
   loadAssignments();
 }
+
 function loadAssignments(){
-  state.assignments = getAssignments();
+  renderClassSelect();
+  const asgs = getAssignments();
   const box = $('#assignmentList');
-  if (!state.assignments.length){
-    box.innerHTML = '<p class="empty">还没有作业，先在上面发布一个吧。</p>';
+  if (!asgs.length){
+    box.innerHTML = '<p class="empty">当前班级还没有作业。</p>';
     return;
   }
-  box.innerHTML = state.assignments.map(a => {
+  box.innerHTML = asgs.map(a => {
     const dp = dateParts(a.date);
     return `
     <div class="as-item" data-id="${a.id}">
-      <div class="as-badge">
-        <span class="as-day">${esc(dp.day)}</span>
-        <span class="as-mon">${esc(dp.mon)}</span>
-      </div>
+      <div class="as-badge"><span class="as-day">${esc(dp.day)}</span><span class="as-mon">${esc(dp.mon)}</span></div>
       <div class="as-main">
         <div class="as-title">${esc(a.title)}</div>
         <div class="as-meta">
@@ -897,53 +800,29 @@ function loadAssignments(){
       <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
         <button class="btn btn-sm" data-act="open">打卡</button>
         <button class="icon-btn" data-act="del-as" title="删除">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-            <path d="M10 11v6M14 11v6"/>
-          </svg>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
     </div>`;
   }).join('');
 }
-function onAssignmentListClick(e){
-  const delBtn = e.target.closest('button[data-act="del-as"]');
-  if (delBtn){
-    const item = delBtn.closest('.as-item');
-    const id = Number(item.dataset.id);
-    const title = item.querySelector('.as-title').textContent;
-    if (!confirm('确定删除作业「' + title + '」吗？\n打卡记录也会一并删除。')) return;
-    deleteAssignment(id);
-    toast('已删除');
-    loadAssignments();
-    return;
-  }
-  const btn = e.target.closest('button[data-act="open"]');
-  if (!btn) return;
-  openAssignment(Number(btn.closest('.as-item').dataset.id));
-}
+
 function openAssignment(id){
   try {
     const data = getAssignmentDetail(id);
     state.current = { assignment: data.assignment, students: data.students };
-    $('#paneList').hidden = true;
-    $('#paneCheck').hidden = false;
+    $('#paneList').hidden = true; $('#paneCheck').hidden = false;
     renderCheckin();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (e) { toast('打开失败：' + e.message); }
 }
-function backToList(){
-  $('#paneList').hidden = false;
-  $('#paneCheck').hidden = true;
-}
+
 function renderCheckin(){
   const { assignment, students } = state.current;
   $('#ckTitle').textContent = assignment.title;
   $('#ckMeta').textContent  = assignment.date + (assignment.content ? ' · ' + assignment.content : '');
   if (!students.length){
-    $('#ckList').innerHTML = '<p class="empty">班级里还没有学生，请先到「学生名单」导入。</p>';
+    $('#ckList').innerHTML = '<p class="empty">班级里还没有学生，请先导入。</p>';
   } else {
     $('#ckList').innerHTML = students.map(s => `
       <div class="check-row" data-id="${s.id}">
@@ -960,6 +839,7 @@ function renderCheckin(){
   }
   updateProgress();
 }
+
 function updateProgress(){
   const st = state.current.students;
   const total = st.length;
@@ -967,36 +847,7 @@ function updateProgress(){
   const miss  = st.filter(s => s.status === 'miss').length;
   const pct   = total ? Math.round(done / total * 100) : 0;
   $('#ckProgressBar').style.width = pct + '%';
-  $('#ckProgressText').innerHTML =
-    `<span>已背 <b>${done}</b> / ${total}</span>` +
-    `<span>未背 <b>${miss}</b></span>` +
-    `<span>未记录 <b>${total - done - miss}</b></span>` +
-    `<span>完成率 <b>${pct}%</b></span>`;
-}
-function onCheckinClick(e){
-  const btn = e.target.closest('button[data-status]');
-  if (!btn) return;
-  const row = btn.closest('.check-row');
-  const sid = Number(row.dataset.id);
-  const want = btn.dataset.status;
-  const stu = state.current.students.find(s => s.id === sid);
-  if (!stu) return;
-  const next = (stu.status === want) ? null : want;
-  stu.status = next;
-  row.querySelector('.check-btn.done').classList.toggle('active', next === 'done');
-  row.querySelector('.check-btn.miss').classList.toggle('active', next === 'miss');
-  updateProgress();
-  setRecord(state.current.assignment.id, sid, next);
-}
-function markAllDone(){
-  const st = state.current.students;
-  const ids = st.filter(s => s.status !== 'done').map(s => s.id);
-  if (!ids.length) return toast('所有人都已标记为已背');
-  if (!confirm('将 ' + ids.length + ' 名未标记的学生全部记为「已背」？')) return;
-  bulkRecord(state.current.assignment.id, ids, 'done');
-  st.forEach(s => { if (ids.includes(s.id)) s.status = 'done'; });
-  renderCheckin();
-  toast('已全部标记');
+  $('#ckProgressText').innerHTML = `<span>已背 <b>${done}</b> / ${total}</span><span>未背 <b>${miss}</b></span><span>未记录 <b>${total - done - miss}</b></span><span>完成率 <b>${pct}%</b></span>`;
 }
 
 /* ==================================================================
@@ -1007,20 +858,19 @@ function setRange(r){
   $$('.range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === r));
   loadOverview();
 }
+
 function loadOverview(){
-  const r = state.range;
-  const now = today();
+  renderClassSelect();
+  const r = state.range, now = today();
   let from, to;
   if (r === 'today')      { from = to = now; }
   else if (r === 'week')  { from = weekStart(); to = now; }
   else if (r === 'month') { from = monthStart(); to = now; }
   else if (r === 'all')   { from = '2000-01-01'; to = '2999-12-31'; }
-  else {
-    from = $('#ovFrom').value || '2000-01-01';
-    to   = $('#ovTo').value   || '2999-12-31';
-  }
+  else { from = $('#ovFrom').value || '2000-01-01'; to = $('#ovTo').value || '2999-12-31'; }
   renderOverview(getOverview(from, to));
 }
+
 function renderOverview(d){
   const asgCount  = d.assignments.length;
   const stuCount  = d.students.length;
@@ -1028,97 +878,213 @@ function renderOverview(d){
   const done = d.students.reduce((a, s) => a + s.done, 0);
   const miss = d.students.reduce((a, s) => a + s.miss, 0);
   const rate = totalSlot ? Math.round(done / totalSlot * 100) : 0;
+  
   $('#ovStats').innerHTML = `
     <div class="stat"><div class="stat-num" style="color:#4f46e5">${asgCount}</div><div class="stat-label">作业数</div></div>
     <div class="stat"><div class="stat-num" style="color:#10b981">${done}</div><div class="stat-label">已背人次</div></div>
     <div class="stat"><div class="stat-num" style="color:#ef4444">${miss}</div><div class="stat-label">未背人次</div></div>
     <div class="stat"><div class="stat-num" style="color:#0ea5e9">${rate}%</div><div class="stat-label">完成率</div></div>
   `;
+
   const daily = d.daily.slice().reverse();
   $('#ovDaily').innerHTML = `
     <thead><tr><th>日期</th><th>作业数</th><th>已背</th><th>未背</th><th>未记录</th><th>完成率</th></tr></thead>
     <tbody>${ daily.length ? daily.map(x => {
       const t = x.done + x.miss + x.unmarked;
       const r = t ? Math.round(x.done / t * 100) : 0;
-      return `<tr>
-        <td>${x.date}</td><td>${x.assignments}</td>
-        <td class="c-ok">${x.done}</td><td class="c-no">${x.miss}</td>
-        <td class="c-muted">${x.unmarked}</td>
-        <td><span class="mini-bar"><span style="width:${r}%"></span></span>${r}%</td>
-      </tr>`;
-    }).join('') : '<tr><td colspan="6" class="empty">该时间段暂无记录</td></tr>'}</tbody>
+      return `<tr><td>${x.date}</td><td>${x.assignments}</td><td class="c-ok">${x.done}</td><td class="c-no">${x.miss}</td><td class="c-muted">${x.unmarked}</td><td><span class="mini-bar"><span style="width:${r}%"></span></span>${r}%</td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="empty">暂无记录</td></tr>'}</tbody>
   `;
-  const stu = d.students.slice().sort((a, b) => {
-    const ra = a.total ? a.done / a.total : 0;
-    const rb = b.total ? b.done / b.total : 0;
-    return (rb - ra) || (a.id - b.id);
-  });
+
+  const stu = d.students.slice().sort((a, b) => ((b.done/b.total)||0) - ((a.done/a.total)||0));
   $('#ovStudents').innerHTML = `
     <thead><tr><th>学号</th><th>姓名</th><th>已背</th><th>未背</th><th>未记录</th><th>完成率</th></tr></thead>
     <tbody>${ stu.length ? stu.map(s => {
       const r = s.total ? Math.round(s.done / s.total * 100) : 0;
-      return `<tr>
-        <td class="c-muted">${esc(s.no || '—')}</td>
-        <td style="font-weight:600;color:#0f172a">${esc(s.name)}</td>
-        <td class="c-ok">${s.done}</td><td class="c-no">${s.miss}</td>
-        <td class="c-muted">${s.total - s.done - s.miss}</td>
-        <td><span class="mini-bar"><span style="width:${r}%"></span></span>${r}%</td>
-      </tr>`;
+      return `<tr><td class="c-muted">${esc(s.no || '—')}</td><td style="font-weight:600;color:#0f172a">${esc(s.name)}</td><td class="c-ok">${s.done}</td><td class="c-no">${s.miss}</td><td class="c-muted">${s.total - s.done - s.miss}</td><td><span class="mini-bar"><span style="width:${r}%"></span></span>${r}%</td></tr>`;
     }).join('') : '<tr><td colspan="6" class="empty">暂无学生</td></tr>'}</tbody>
   `;
+
   const asg = d.assignments.slice().reverse();
   $('#ovAssignments').innerHTML = `
     <thead><tr><th>日期</th><th>篇目</th><th>已背</th><th>未背</th><th>未记录</th></tr></thead>
     <tbody>${ asg.length ? asg.map(a => `
-      <tr>
-        <td class="c-muted">${a.date}</td>
-        <td style="font-weight:500">${esc(a.title)}</td>
-        <td class="c-ok">${a.done}</td><td class="c-no">${a.miss}</td>
-        <td class="c-muted">${a.total - a.done - a.miss}</td>
-      </tr>`).join('') : '<tr><td colspan="5" class="empty">暂无作业</td></tr>'}</tbody>
+      <tr><td class="c-muted">${a.date}</td><td style="font-weight:500">${esc(a.title)}</td><td class="c-ok">${a.done}</td><td class="c-no">${a.miss}</td><td class="c-muted">${a.total - a.done - a.miss}</td></tr>
+    `).join('') : '<tr><td colspan="5" class="empty">暂无作业</td></tr>'}</tbody>
   `;
 }
 
 /* ==================================================================
-   初始化
+   备份与恢复
+   ================================================================== */
+function openBackupModal(){
+  const last = localStorage.getItem(LAST_BACKUP_KEY);
+  $('#backupStat').innerHTML = `共 <b>${DB.classes.length}</b> 个班级，<b>${DB.students.length}</b> 名学生，<b>${DB.assignments.length}</b> 条作业。<br>上次备份：<b>${last ? new Date(last).toLocaleString() : '从未备份'}</b>`;
+  $('#backupModal').hidden = false;
+}
+function exportBackup(){
+  const payload = { app: 'recite-helper', version: 2, exportedAt: new Date().toISOString(), data: DB };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '背诵备份_' + today() + '.json';
+  a.click();
+  localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString());
+  toast('备份已导出'); openBackupModal();
+}
+function importBackup(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const obj = JSON.parse(reader.result);
+      const data = obj.data || obj;
+      if (!data || !Array.isArray(data.students)) throw new Error('格式不正确');
+      if (!confirm('导入将覆盖当前所有班级及数据，确定吗？')) return;
+      
+      DB = data;
+      // 修复兼容性
+      if (!DB.classes) DB.classes = [{ id: 1, name: '默认班级' }];
+      if (!DB.currentClassId) DB.currentClassId = DB.classes[0].id;
+      if (!DB.seq) DB.seq = { class: 1, student: 0, assignment: 0 };
+      
+      saveDB(); toast('导入成功'); loadStudents(); $('#backupModal').hidden = true;
+    } catch(e) { toast('导入失败：' + e.message); }
+  };
+  reader.readAsText(file);
+}
+
+/* ==================================================================
+   初始化与事件绑定
    ================================================================== */
 function init(){
   $$('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
-  $('#btnImport').addEventListener('click', importStudents);
-  $('#studentList').addEventListener('click', onStudentListClick);
+  renderClassSelect();
 
+  // 班级切换
+  $('#classSelect').addEventListener('change', e => {
+    DB.currentClassId = Number(e.target.value);
+    saveDB();
+    // 重新加载当前视图
+    const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+    switchTab(activeTab);
+    toast('已切换至：' + DB.classes.find(c => c.id === DB.currentClassId).name);
+  });
+
+  // 班级管理
+  $('#btnManageClasses').addEventListener('click', () => {
+    renderClassManageList();
+    $('#classModal').hidden = false;
+  });
+  $('#btnCloseClassModal').addEventListener('click', () => $('#classModal').hidden = true);
+  $('#btnAddClass').addEventListener('click', () => {
+    const name = $('#newClassName').value.trim();
+    if (name) {
+      addClass(name);
+      $('#newClassName').value = '';
+      renderClassManageList();
+      renderClassSelect();
+      toast('班级已添加');
+    }
+  });
+
+  function renderClassManageList() {
+    $('#classManageList').innerHTML = DB.classes.map(c => `
+      <div class="class-manage-item">
+        <span style="font-weight:600">${esc(c.name)}</span>
+        ${DB.classes.length > 1 ? `<button class="btn btn-ghost btn-sm" style="color:var(--no)" onclick="deleteClassItem(${c.id})">删除</button>` : ''}
+      </div>
+    `).join('');
+  }
+  window.deleteClassItem = (id) => {
+    if (confirm('删除班级将同时删除该班级下的所有学生、作业和打卡记录！确定吗？')) {
+      if (deleteClass(id)) {
+        renderClassManageList(); renderClassSelect();
+        const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+        switchTab(activeTab);
+        toast('班级已删除');
+      }
+    }
+  };
+
+  // 学生导入
+  $('#btnImport').addEventListener('click', importStudents);
+  $('#excelUpload').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) handleExcelUpload(file);
+    e.target.value = ''; // 允许重复选择同一文件
+  });
+  
+  // 学生删除
+  $('#studentList').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-act="del"]');
+    if (!btn) return;
+    const id = Number(btn.closest('.stu-item').dataset.id);
+    if (confirm('确定删除该学生？记录也会一并删除。')) {
+      deleteStudent(id); toast('已删除'); loadStudents();
+    }
+  });
+
+  // 作业
   $('#asDate').value = today();
   $('#btnCreate').addEventListener('click', createAssignment);
-  $('#assignmentList').addEventListener('click', onAssignmentListClick);
-  $('#btnBack').addEventListener('click', backToList);
-  $('#ckList').addEventListener('click', onCheckinClick);
-  $('#btnMarkAllDone').addEventListener('click', markAllDone);
+  $('#assignmentList').addEventListener('click', e => {
+    const delBtn = e.target.closest('button[data-act="del-as"]');
+    if (delBtn) {
+      const id = Number(delBtn.closest('.as-item').dataset.id);
+      if (confirm('确定删除该作业？打卡记录也会删除。')) {
+        deleteAssignment(id); toast('已删除'); loadAssignments();
+      }
+      return;
+    }
+    const openBtn = e.target.closest('button[data-act="open"]');
+    if (openBtn) openAssignment(Number(openBtn.closest('.as-item').dataset.id));
+  });
 
+  // 打卡页
+  $('#btnBack').addEventListener('click', () => { $('#paneList').hidden = false; $('#paneCheck').hidden = true; });
+  $('#ckList').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-status]');
+    if (!btn) return;
+    const row = btn.closest('.check-row');
+    const sid = Number(row.dataset.id);
+    const want = btn.dataset.status;
+    const stu = state.current.students.find(s => s.id === sid);
+    if (!stu) return;
+    const next = (stu.status === want) ? null : want;
+    stu.status = next;
+    row.querySelector('.check-btn.done').classList.toggle('active', next === 'done');
+    row.querySelector('.check-btn.miss').classList.toggle('active', next === 'miss');
+    updateProgress();
+    setRecord(state.current.assignment.id, sid, next);
+  });
+  $('#btnMarkAllDone').addEventListener('click', () => {
+    const st = state.current.students;
+    const ids = st.filter(s => s.status !== 'done').map(s => s.id);
+    if (!ids.length) return toast('所有人都已标记');
+    if (!confirm(`将 ${ids.length} 名未标记的学生记为「已背」？`)) return;
+    bulkRecord(state.current.assignment.id, ids, 'done');
+    st.forEach(s => { if (ids.includes(s.id)) s.status = 'done'; });
+    renderCheckin(); toast('已全部标记');
+  });
+
+  // 总览
   $$('.range-btn').forEach(b => b.addEventListener('click', () => setRange(b.dataset.range)));
   $('#btnCustom').addEventListener('click', () => {
-    state.range = 'custom';
-    $$('.range-btn').forEach(b => b.classList.remove('active'));
+    state.range = 'custom'; $$('.range-btn').forEach(b => b.classList.remove('active'));
     loadOverview();
   });
-  $('#ovFrom').value = monthStart();
-  $('#ovTo').value   = today();
+  $('#ovFrom').value = monthStart(); $('#ovTo').value = today();
 
-  // 备份模态框
+  // 备份
   $('#btnBackup').addEventListener('click', openBackupModal);
-  $('#btnCloseModal').addEventListener('click', closeBackupModal);
-  $('#backupModal').addEventListener('click', e => {
-    if (e.target === $('#backupModal')) closeBackupModal();
-  });
+  $('#btnCloseModal').addEventListener('click', () => $('#backupModal').hidden = true);
   $('#btnExport').addEventListener('click', exportBackup);
   $('#fileImport').addEventListener('change', e => {
-    const f = e.target.files && e.target.files[0];
-    if (f) importBackup(f);
+    if (e.target.files[0]) importBackup(e.target.files[0]);
     e.target.value = '';
   });
 
   loadStudents();
-  requestPersistentStorage();
-  injectManifest();
 }
 
 document.addEventListener('DOMContentLoaded', init);
