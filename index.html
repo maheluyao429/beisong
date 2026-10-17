@@ -262,13 +262,13 @@
   .modal-mask[hidden]{display:none}
   .modal{
     background:#fff;border-radius:18px;padding:20px;width:100%;max-width:380px;
-    box-shadow:0 20px 50px -20px rgba(15,23,42,.6);max-height:80vh;overflow-y:auto;
+    box-shadow:0 20px 50px -20px rgba(15,23,42,.6);max-height:85vh;overflow-y:auto;
   }
   .modal h3{margin:0 0 10px;font-size:17px}
   .modal-actions{display:flex;flex-direction:column;gap:9px;margin-top:14px}
   
   .class-manage-item{display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--line);}
-  .class-manage-item:last-child{border-bottom:0}
+  .class-manage-item:last-child{border-bottom:0;}
 
   @media (max-width:520px){
     .app-header{padding:18px 16px 26px}
@@ -319,7 +319,7 @@
   <section id="view-students" class="view">
     <div class="card">
       <h3>导入学生到当前班级</h3>
-      <p class="hint">支持从 Excel (第一列学号，第二列姓名，或直接一列姓名) 导入，也可手动粘贴。重复姓名+学号自动跳过。</p>
+      <p class="hint">支持从 Excel 导入，也可手动粘贴。重复学生自动跳过。</p>
       <div class="row" style="margin-bottom:12px;">
         <label class="file-label" for="excelUpload">📁 选择 Excel 文件</label>
         <input type="file" id="excelUpload" accept=".xlsx, .xls, .csv" hidden />
@@ -394,6 +394,38 @@
   </section>
 </main>
 
+<!-- Excel 导入配置模态框 -->
+<div class="modal-mask" id="excelConfigModal" hidden>
+  <div class="modal">
+    <h3>📊 导入配置</h3>
+    <p class="hint" style="margin-bottom:12px;">请检查下方预览是否正确，如果不对请调整列对应关系：</p>
+    
+    <div class="row" style="margin-bottom:10px; display:flex; align-items:center;">
+      <span style="width:70px; font-size:14px;">姓名列：</span>
+      <select id="excelNameCol" class="class-select" style="flex:1; padding:8px;"></select>
+    </div>
+    <div class="row" style="margin-bottom:10px; display:flex; align-items:center;">
+      <span style="width:70px; font-size:14px;">学号列：</span>
+      <select id="excelNoCol" class="class-select" style="flex:1; padding:8px;"></select>
+    </div>
+    <div class="row" style="margin-bottom:10px; display:flex; align-items:center;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:14px; cursor:pointer;">
+        <input type="checkbox" id="excelSkipHeader" style="width:16px;height:16px;margin:0;"> 跳过第一行（表头）
+      </label>
+    </div>
+    
+    <div style="background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:10px; font-size:13px; color:var(--muted); margin-bottom:16px; max-height:120px; overflow-y:auto;">
+      <div style="font-weight:bold; margin-bottom:6px; color:var(--ink-2);">数据预览：</div>
+      <div id="excelPreview"></div>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="btn" id="btnConfirmExcelImport">确认导入</button>
+      <button class="btn btn-ghost" id="btnCancelExcelImport">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- 班级管理模态框 -->
 <div class="modal-mask" id="classModal" hidden>
   <div class="modal">
@@ -427,7 +459,7 @@
 /* ==================================================================
    本地数据层 (多班级支持)
    ================================================================== */
-const STORAGE_KEY = 'recite_app_multi_v1'; // 更换了Key，但做了旧版兼容
+const STORAGE_KEY = 'recite_app_multi_v1'; 
 const OLD_KEY = 'recite_app_v1';
 const LAST_BACKUP_KEY = 'recite_last_backup';
 
@@ -446,13 +478,12 @@ function loadDB(){
   let d = null;
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) raw = localStorage.getItem(OLD_KEY); // 尝试读取旧版数据
+    if (!raw) raw = localStorage.getItem(OLD_KEY);
     if (raw) d = JSON.parse(raw);
   } catch(e) { console.warn('读取失败', e); }
   
   if (!d || typeof d !== 'object') return emptyDB();
 
-  // 如果是旧版数据（没有 classes），进行迁移
   if (!d.classes) {
     d = {
       classes: [{ id: 1, name: '默认班级(迁移)' }],
@@ -462,12 +493,10 @@ function loadDB(){
       records: d.records || [],
       seq: { class: 1, student: d.seq?.student || 0, assignment: d.seq?.assignment || 0 }
     };
-    // 给旧数据打上班级标签
     d.students.forEach(s => s.classId = 1);
     d.assignments.forEach(a => a.classId = 1);
   }
 
-  // 补全缺失字段
   d.classes = Array.isArray(d.classes) && d.classes.length ? d.classes : [{ id: 1, name: '默认班级' }];
   d.currentClassId = d.classes.some(c => c.id === d.currentClassId) ? d.currentClassId : d.classes[0].id;
   d.students = Array.isArray(d.students) ? d.students : [];
@@ -489,7 +518,6 @@ function nextId(type){
 }
 
 /* 班级操作 */
-function getClasses(){ return DB.classes; }
 function addClass(name){
   if (!name.trim()) return false;
   const id = nextId('class');
@@ -500,7 +528,6 @@ function addClass(name){
 function deleteClass(id){
   if (DB.classes.length <= 1) { toast('至少保留一个班级'); return false; }
   DB.classes = DB.classes.filter(c => c.id !== id);
-  // 删除该班级下的所有数据
   const stuIds = DB.students.filter(s => s.classId === id).map(s => s.id);
   DB.students = DB.students.filter(s => s.classId !== id);
   DB.assignments = DB.assignments.filter(a => a.classId !== id);
@@ -583,7 +610,7 @@ function bulkRecord(assignmentId, studentIds, status){
   saveDB();
 }
 
-/* 总览 (只统计当前班级) */
+/* 总览 */
 function getOverview(from, to){
   const classStudents = DB.students.filter(s => s.classId === DB.currentClassId);
   const classAsgs = DB.assignments.filter(a => a.classId === DB.currentClassId && a.date >= from && a.date <= to);
@@ -632,6 +659,7 @@ function getOverview(from, to){
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const state = { current: null, range: 'today' };
+let tempExcelRows = []; // 存放原始解析的Excel数据
 
 function pad(n){ return String(n).padStart(2, '0'); }
 function fmtDate(d){ return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -667,7 +695,7 @@ function renderClassSelect(){
 }
 
 /* ==================================================================
-   学生名单
+   学生名单与导入
    ================================================================== */
 function parseNames(text){
   return text.split(/[\n\r,，、;；\t]+/).map(s => s.trim()).filter(Boolean).map(s => {
@@ -686,7 +714,7 @@ function importStudents(){
   loadStudents();
 }
 
-// Excel 解析逻辑
+// Excel 解析逻辑 (带预览与配置)
 function handleExcelUpload(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -694,50 +722,112 @@ function handleExcelUpload(file) {
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, { type: 'array' });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      // 转成二维数组，遇到空单元格保留
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      tempExcelRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
       
-      const items = [];
-      let startRow = 0;
+      if (!tempExcelRows.length) return toast('Excel为空');
+
+      // 分析最大列数
+      let maxCols = 0;
+      tempExcelRows.slice(0, 10).forEach(r => maxCols = Math.max(maxCols, r.length));
+      if (maxCols === 0) return toast('未读到数据');
+
+      // 初始化下拉框
+      const nameSel = $('#excelNameCol');
+      const noSel = $('#excelNoCol');
+      nameSel.innerHTML = '';
+      noSel.innerHTML = '<option value="-1">（不导入学号）</option>';
       
-      // 智能判断是否有表头
-      if (rows.length > 0) {
-        const firstRowStr = rows[0].join('');
-        if (firstRowStr.includes('姓名') || firstRowStr.includes('学号')) {
-          startRow = 1;
+      for (let i = 0; i < maxCols; i++) {
+        nameSel.innerHTML += `<option value="${i}">第 ${i+1} 列</option>`;
+        noSel.innerHTML += `<option value="${i}">第 ${i+1} 列</option>`;
+      }
+
+      // 自动探测表头
+      let headerRowIndex = -1;
+      let autoNameCol = 0;
+      let autoNoCol = -1;
+      
+      for (let i = 0; i < Math.min(5, tempExcelRows.length); i++) {
+        const rowStr = tempExcelRows[i].join('');
+        if (rowStr.includes('姓名') || rowStr.includes('名字') || rowStr.includes('学生')) {
+          headerRowIndex = i;
+          tempExcelRows[i].forEach((cell, idx) => {
+            const c = String(cell).trim();
+            if (c === '姓名' || c === '名字' || c === '学生姓名') autoNameCol = idx;
+            if (c === '学号' || c === '编号' || c === '序号') autoNoCol = idx;
+          });
+          break;
         }
       }
 
-      for (let i = startRow; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row || row.length === 0) continue;
-        
-        let no = '', name = '';
-        if (row.length >= 2) {
-          // 假设第一列是学号，第二列是姓名
-          no = String(row[0]).trim();
-          name = String(row[1]).trim();
-        } else if (row.length === 1) {
-          // 只有一列，可能是 "01 张三" 或直接 "张三"
-          const m = String(row[0]).match(/^(\d{1,3})[\s.、\-_:：]+(.+)$/);
-          if (m) { no = m[1]; name = m[2].trim(); }
-          else { name = String(row[0]).trim(); }
+      // 默认选择逻辑
+      if (headerRowIndex === -1) {
+        if (maxCols >= 2) {
+          autoNameCol = 1; autoNoCol = 0; // 默认第2列姓名，第1列学号
+        } else {
+          autoNameCol = 0; autoNoCol = -1;
         }
-        
-        if (name) items.push({ no, name });
       }
 
-      if (!items.length) return toast('未在Excel中解析到学生数据');
+      nameSel.value = autoNameCol;
+      noSel.value = autoNoCol;
+      $('#excelSkipHeader').checked = (headerRowIndex !== -1);
+
+      updateExcelPreview();
+      $('#excelConfigModal').hidden = false;
       
-      const added = addStudents(items);
-      toast(added === 0 ? '学生已存在' : `成功从Excel导入 ${added} 名学生`);
-      loadStudents();
     } catch (err) {
       console.error(err);
       toast('Excel解析失败，请确保格式正确');
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+function updateExcelPreview() {
+  const nameIdx = parseInt($('#excelNameCol').value);
+  const noIdx = parseInt($('#excelNoCol').value);
+  const skipHeader = $('#excelSkipHeader').checked;
+  
+  let html = '';
+  const start = skipHeader ? 1 : 0;
+  for (let i = start; i < Math.min(start + 3, tempExcelRows.length); i++) {
+    const row = tempExcelRows[i];
+    if (!row) continue;
+    const no = noIdx >= 0 ? row[noIdx] : '';
+    const name = nameIdx >= 0 ? row[nameIdx] : '';
+    html += `<div style="margin-bottom:4px;">学号: <b>${esc(no||'空')}</b>，姓名: <b>${esc(name||'空')}</b></div>`;
+  }
+  if (!html) html = '<div>无法预览，请调整列选择</div>';
+  $('#excelPreview').innerHTML = html;
+}
+
+function confirmExcelImport() {
+  const nameIdx = parseInt($('#excelNameCol').value);
+  const noIdx = parseInt($('#excelNoCol').value);
+  const skipHeader = $('#excelSkipHeader').checked;
+  
+  if (nameIdx < 0) return toast('请选择包含姓名的列');
+  
+  const items = [];
+  const start = skipHeader ? 1 : 0;
+  
+  for (let i = start; i < tempExcelRows.length; i++) {
+    const row = tempExcelRows[i];
+    if (!row) continue;
+    let name = String(row[nameIdx] || '').trim();
+    let no = noIdx >= 0 ? String(row[noIdx] || '').trim() : '';
+    
+    if (name) items.push({ no, name });
+  }
+  
+  if (!items.length) return toast('没有解析到有效学生');
+  
+  const added = addStudents(items);
+  toast(added === 0 ? '学生已存在' : `成功导入 ${added} 名学生`);
+  loadStudents();
+  $('#excelConfigModal').hidden = true;
+  tempExcelRows = [];
 }
 
 function loadStudents(){
@@ -942,7 +1032,6 @@ function importBackup(file){
       if (!confirm('导入将覆盖当前所有班级及数据，确定吗？')) return;
       
       DB = data;
-      // 修复兼容性
       if (!DB.classes) DB.classes = [{ id: 1, name: '默认班级' }];
       if (!DB.currentClassId) DB.currentClassId = DB.classes[0].id;
       if (!DB.seq) DB.seq = { class: 1, student: 0, assignment: 0 };
@@ -964,7 +1053,6 @@ function init(){
   $('#classSelect').addEventListener('change', e => {
     DB.currentClassId = Number(e.target.value);
     saveDB();
-    // 重新加载当前视图
     const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
     switchTab(activeTab);
     toast('已切换至：' + DB.classes.find(c => c.id === DB.currentClassId).name);
@@ -1011,9 +1099,19 @@ function init(){
   $('#excelUpload').addEventListener('change', e => {
     const file = e.target.files[0];
     if (file) handleExcelUpload(file);
-    e.target.value = ''; // 允许重复选择同一文件
+    e.target.value = ''; 
   });
   
+  // Excel 配置事件
+  $('#excelNameCol').addEventListener('change', updateExcelPreview);
+  $('#excelNoCol').addEventListener('change', updateExcelPreview);
+  $('#excelSkipHeader').addEventListener('change', updateExcelPreview);
+  $('#btnConfirmExcelImport').addEventListener('click', confirmExcelImport);
+  $('#btnCancelExcelImport').addEventListener('click', () => {
+    $('#excelConfigModal').hidden = true;
+    tempExcelRows = [];
+  });
+
   // 学生删除
   $('#studentList').addEventListener('click', e => {
     const btn = e.target.closest('button[data-act="del"]');
